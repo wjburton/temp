@@ -1,0 +1,26 @@
+---
+title: "BrightBytes Data Challenge"
+output:
+  html_notebook: default
+  html_document: default
+---
+
+###Intro
+**Objective**: Use this dataset to help understand what factors are the best predictors of postsecondary enrollment, and offer suggestions to operationalize those insights to help Brightbytes.
+
+**Interpretation**: which factors are the best predictors of gaining a further education after highschool. This includes any additional including college/university and associates degreed. 
+
+**Methodology**: Make the target binary. 1 = Post secondary (anything above highschool), 0 = non-post secondary. Identify factors that are associated with higher rates of post secondary education.
+
+
+Load libraries and data
+```{r}
+library(tidyverse)
+df <- read_csv('/home/will/link_to_wjburton/Documents/Professional Info/Company Code Challenges/BrightBytes/HSLS_2009_v3_0/students.csv')
+```
+
+Based on Data dictionary, drop columns that will not be used, and rename columns to be more interpretable.
+```{r}
+
+```
+
