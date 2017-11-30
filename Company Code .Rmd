@@ -46,11 +46,10 @@ gate/introductory question is not answered.
 
 Build modeling dataset:
 Based on Data dictionary, only keep variables that would be useful for building predictive models, and rename columns to be more interpretable. (Keep variables that are known before the post secondary decision is made)
-In this dataset I drop the rows that include -5, -8 or -9. -7 becomes the target, and everything > 0   becomes 1.
+In this dataset I only keep rows containing S3PROGLEVEL having values of -7 and 1. It is then converted to binary with 1 = post secondary (bachelors), and -7 = not post secondary
 ```{r}
 table(df$S3PROGLEVEL)
-
-pred_df <- df %>% 
+df <- df %>% 
       select(-one_of('X1','S3FALLHSID', 'X3STATE', 'SCH_ID', 'S3ENROLLHS13', 'S3FOCUS','S3CLGFT',
                      'S3WORKFT', 'S3CLGLVL', 'S3CLGSTATE', 'S3AAB4BA', 'S3BATRANSFER', 'S3REPUTATION',
                      'S3COSTATTEND','S3DISTANCE',
@@ -61,7 +60,7 @@ pred_df <- df %>%
       rename(parent_occ = X1PAR1OCC_STEM1, socio_econ = X1SES, fafsa = S3APPFAFSA,
              location = X3LOCALE, alg1 = X3T1CREDALG1, alg2 = X3T1CREDALG2, int_math = X3T1CREDINTM,
              pre_calc = X3T1CREDPREC, stat = X3T1CREDSTAT, when_alg1 = X3TWHENALG1,
-             ap_class = S3AP, ib_class = S3IB, col_clas = S3DUAL, ap_math = S3APMATH,
+             ap_class = S3AP, ib_class = S3IB, col_class = S3DUAL, ap_math = S3APMATH,
              ap_sci = S3APSCIENCE, ap_other = S3APOTHER, ib_math = S3IBMATH, ib_sci = S3IBSCIENCE,
              ib_other = S3IBOTHER, col_math = S3DUALMATH, col_sci = S3DUALSCIENCE, 
              col_other = S3DUALOTHER, col_influence = S3CLGINFLU,
@@ -69,127 +68,204 @@ pred_df <- df %>%
       filter(post_second == -7 | post_second == 1) %>% 
       mutate(post_second  = ifelse(post_second == -7,0,1)) %>% 
       mutate_if(is.integer, as.factor)
+
+set.seed(10)
+train_samp <- sample(1:nrow(df), size = 0.9 * nrow(df))
+train_df <- df[train_samp,] 
+test_df <- df[-train_samp,]
 ```
+
+Instead of exploring all variables and associations, lets use a random forest to pull out the variables that could be of the most useful for predicting post secondary education.
+```{r}
+forest <- randomForest::randomForest(factor(post_second) ~ ., train_df)
+randomForest::varImpPlot(forest)
+```
+
+Based on the output, it appears as expected: FAFSA is the top followed by socio economic status. I'll look at some of the other top rated variables, and ignore some of the others for this exercise.
 
 ##Exploration
 Explore variable reationships with post secondary
-socio-econic
-
+FAFSA - Don't include this in a predictive model, but it could be useful as a recommendation. FAFSA only applies to students thinking about a further education so it isn't a qualified variable to use for prediction.
 ```{r}
-#We are missing ~ 1000 socio economic values, but this is an incredibly strong predictor. We'll just add #an indicator if it is = -8
-hist(pred_df$socio_econ)
-plot_continuous(pred_df$socio_econ[pred_df$socio_econ > -8],  n = 100,
-                response = pred_df$post_second[pred_df$socio_econ > -8], max_poly_degree = 1, log_odds = F, variable_name = 'Socio Economic')
+train_df %>% 
+  group_by(fafsa) %>% 
+  summarise(pct_post_second = sum(post_second)/n(),
+            n = n()) %>% 
+  arrange(pct_post_second) %>%
+  mutate(fafsa = factor(fafsa,levels = unique(fafsa))) %>%
+  ggplot(aes(fafsa, pct_post_second)) + geom_bar(aes(alpha = log(n)),stat = 'identity') + 
+  theme(axis.text.x = element_text(angle = 90, hjust = 1))
 ```
 
 
-Parent occupation
+
+socio-econ
 ```{r}
-pred_df %>% 
-  group_by(parent_occ) %>% 
+#Missing ~ 1000 socio economic values, but this is an incredibly strong predictor. I'll just add #an indicator if it is = -8
+hist(train_df$socio_econ)
+plot_continuous(train_df$socio_econ[train_df$socio_econ > -8],  n = 100,
+                response = train_df$post_second[train_df$socio_econ > -8], max_poly_degree = 1, log_odds = F, variable_name = 'Socio Economic')
+```
+
+ap_class
+```{r}
+table(train_df$ap_class, train_df$post_second)
+train_df %>% 
+  group_by(ap_class) %>% 
+  summarise(pct_post_second = sum(post_second)/n(),
+            n = n()) %>% 
+  arrange(pct_post_second) %>%
+  mutate(ap_class = factor(ap_class,levels = unique(ap_class))) %>%
+  ggplot(aes(ap_class, pct_post_second)) + geom_bar(aes(alpha = n),stat = 'identity') + 
+  theme(axis.text.x = element_text(angle = 90, hjust = 1))
+#combine negative
+```
+
+college influence
+```{r}
+table(train_df$col_influence, train_df$post_second)
+train_df %>% 
+  group_by(col_influence) %>% 
+  summarise(pct_post_second = sum(post_second)/n(),
+            n = n()) %>% 
+  arrange(pct_post_second) %>%
+  mutate(col_influence = factor(col_influence,levels = unique(col_influence))) %>%
+  ggplot(aes(col_influence, pct_post_second)) + geom_bar(aes(alpha = n),stat = 'identity') + 
+  theme(axis.text.x = element_text(angle = 90, hjust = 1))
+#col_influence: combine -9 & -4, school_mentor = 3 & 1, interactions = 12 & 7 & 6 & 11 & 5, fam = 9 & 4 & 2 & 10
+```
+"ib_class"     
+```{r}
+table(train_df$ib_class, train_df$post_second)
+train_df %>% 
+  group_by(ib_class) %>% 
+  summarise(pct_post_second = sum(post_second)/n(),
+            n = n()) %>% 
+  arrange(pct_post_second) %>%
+  mutate(ib_class = factor(ib_class,levels = unique(ib_class))) %>%
+  ggplot(aes(ib_class, pct_post_second)) + geom_bar(aes(alpha = n),stat = 'identity') + 
+  theme(axis.text.x = element_text(angle = 90, hjust = 1))
+#combine negative
+```
+
+col_class
+```{r}
+table(train_df$col_class, train_df$post_second)
+train_df %>% 
+  group_by(col_class) %>% 
   summarise(pct_post_second = sum(post_second)/n(),
             n = n()) %>% 
   filter(n > 30) %>% 
+  arrange(pct_post_second) %>%
+  mutate(col_class = factor(col_class,levels = unique(col_class))) %>%
+  ggplot(aes(col_class, pct_post_second)) + geom_bar(aes(alpha = n),stat = 'identity') + 
+  theme(axis.text.x = element_text(angle = 90, hjust = 1))
+#col_class combine negatives
+```
+
+Parent occupation
+```{r}
+train_df %>% 
+  group_by(parent_occ) %>% 
+  summarise(pct_post_second = sum(post_second)/n(),
+            n = n()) %>% 
   arrange(pct_post_second) %>%
   mutate(parent_occ = factor(parent_occ,levels = unique(parent_occ))) %>%
   ggplot(aes(parent_occ, pct_post_second)) + geom_bar(aes(alpha = log(n)),stat = 'identity') + 
   theme(axis.text.x = element_text(angle = 90, hjust = 1))
+
+#combine negatives
 ```
 
 Location
 ```{r}
-pred_df %>% 
+table(train_df$location, train_df$post_second)
+train_df %>% 
   group_by(location) %>% 
   summarise(pct_post_second = sum(post_second)/n(),
             n = n()) %>% 
-  filter(n > 30) %>% 
   arrange(pct_post_second) %>%
   mutate(location = factor(location,levels = unique(location))) %>%
-  ggplot(aes(location, pct_post_second)) + geom_bar(aes(alpha = log(n)),stat = 'identity') + 
+  ggplot(aes(location, pct_post_second)) + geom_bar(aes(alpha = n),stat = 'identity') + 
   theme(axis.text.x = element_text(angle = 90, hjust = 1))
+#location: combine negatives, 3 & 4, 1 & 2
 ```
 
-"alg1"         
-```{r, echo = FALSE}
-pred_df %>% 
-  group_by(alg1) %>% 
-  summarise(pct_post_second = sum(post_second)/n(),
-            n = n()) %>% 
-  filter(n > 30) %>% 
-  arrange(pct_post_second) %>%
-  mutate(alg1 = factor(alg1,levels = unique(alg1))) %>%
-  ggplot(aes(alg1, pct_post_second)) + geom_bar(aes(alpha = n),stat = 'identity') + 
-  theme(axis.text.x = element_text(angle = 90, hjust = 1))
-```
 
-"alg2"         
+### Final dataset manipulation
 ```{r}
-pred_df %>% 
-  group_by(alg2) %>% 
-  summarise(pct_post_second = sum(post_second)/n(),
-            n = n()) %>% 
-  filter(n > 30) %>% 
-  arrange(pct_post_second) %>%
-  mutate(alg1 = factor(alg2,levels = unique(alg2))) %>%
-  ggplot(aes(alg2, pct_post_second)) + geom_bar(aes(alpha = n),stat = 'identity') + 
-  theme(axis.text.x = element_text(angle = 90, hjust = 1))
-```
-
- "int_math"      
-```{r}
-
-```
-
-"pre_calc"      
-```{r}
-
-```
-
-"stat"          
-```{r}
-
-```
-
-"when_alg1"     
-```{r}
-
-```
-
-"ap_class"     
-```{r}
+#hand select variables to use in the model
+transform_data <- function(df, train = T){
+  mod_df <- df %>%
+            select(parent_occ, socio_econ, location, ib_class, 
+            ap_class, col_class, col_influence, post_second) %>% 
+            mutate_if(is.factor, funs(as.integer(as.character(.)))) %>% 
+            mutate_if(is.integer, funs(ifelse(as.integer(.) < 0, '_miss',.))) %>% 
+            mutate_if(is.character, funs(as.factor)) 
+            
+  mod_df <- model.matrix(~., data = mod_df) %>% data.frame() %>%  .[,-1]
   
-```
-
-
-"ib_class"     
-```{r}
+  if(train == T){
+    keep_vars <- mod_df %>% apply(2,sum) %>% .[.>50] %>% names %>% c('socio_econ')
+  }else{
+    keep_vars = names(mod_df)
+  }
   
+  mod_df <- mod_df %>% 
+            select(keep_vars) %>% 
+            mutate(socio_missing = ifelse(socio_econ == -8,1,0),
+                   non_ib_ap_col = ifelse(ap_class_miss == 1 & ib_class_miss == 1 & col_class_miss == 1,1,0))
+}
+
+clean_train_df <- transform_data(train_df)
+clean_test_df <- transform_data(test_df, train = F)
 ```
 
 
-"col_clas"     
+
+### Modeling
+
+I'm choosing to build a logistic regression model so I can interpret the association with the response
 ```{r}
-  
+#Forward selection:
+#define full logistic model
+full_logistic_mod <- glm(post_second ~ ., data = clean_train_df, family = binomial)
+
+#define empty model
+nothing <- glm(post_second ~ 1, data = clean_train_df, family = binomial)
+
+#preform forwards, selection, while optimizing AIC
+forwards <- step(nothing,
+                 scope=list(lower=formula(nothing),upper=formula(full_logistic_mod)), direction="forward", trace = 0)
+
+#check if variables selected were too similar
+selected_vars <- clean_train_df %>% select(forwards$coefficients %>% names() %>% .[-1])
+cor(selected_vars)
+#remove ap_class_miss, keep non_ib_ap_col
+
+# I'll drop the remaining variables that aren't statistically significant
+final_model <- glm(post_second ~ col_influence4 + 
+                   ap_class3 + socio_econ + socio_missing + ap_class2 + col_influence8 + 
+                   parent_occ_miss + location_miss + col_influence11 + col_influence6 + 
+                   col_influence12 + parent_occ4 + location4 + location3 + col_class2 + 
+                   col_class3 + ib_class3 + col_influence9 + col_influence_miss + non_ib_ap_col,
+                   data = clean_train_df, family = binomial)
+
+
+
 ```
 
-"ap_math"     
+
+##Model testing
 ```{r}
-  
+preds <- predict(final_model, clean_test_df)
 ```
 
-"ap_sci"     
-```{r}
-  
-```
 
-"ap_other"     
-```{r}
-  
-```
 
-        "ap_other"      "ib_math"      
-"ib_sci"        "ib_other"      "col_math"      "col_sci"       "col_other"     "col_influence"
-"fafsa"   
+
+
+
 
 
 
@@ -233,6 +309,43 @@ Ideas: Parents: respondants to the survey who don't know shows either 1. It is s
 Functions I had built previously to visualize relationships between a continuous predictor and 
 a binary response
 ```{r}
+#' Calculate the ROC curve for a given model
+#' @description This function calculates the roc curve and returns the data in a data frame
+#' @param model  model of interest
+#' @param response  response variable
+#' @param name  name of model
+#' @param probs predicted probabilities
+#' @export
+calculate_ROC <- function(model = NULL, response, name, probs = NULL){
+  df <- NULL
+  tp_rates <- NULL
+  fp_rates <- NULL
+  probs <- if(is.null(probs)){predict(model, type= 'response')} else{probs}
+  AUC <- as.numeric(pROC::auc(response, probs))
+  for(threshold in 0:200){
+    preds <- ifelse(probs >= (threshold/200), 1,0)
+    confusion_matrix <- caret::confusionMatrix(preds, response)$table
+    POS <- confusion_matrix[2,2]
+    NEG <- confusion_matrix[1,1]
+    FALPOS <- confusion_matrix[2,1]
+    FALNEG <- confusion_matrix[1,2]
+    tp_rate <- POS / (POS + FALNEG)
+    fp_rate <- FALPOS / (NEG + FALPOS)
+    tn_rate <- NEG / (NEG + FALPOS)
+    SPECIFICITY  <- tn_rate
+    SENSIT <- tp_rate
+    M1SPEC <- 1 - SPECIFICITY
+    df <- rbind(df, data.frame(name, AUC,'PROB' = threshold/200,
+                               POS, NEG, FALPOS, FALNEG, SENSIT,
+                               M1SPEC, youden_index = (SENSIT + SPECIFICITY - 1),
+                               accuracy = (POS + NEG)/(POS + NEG + FALPOS + FALNEG)))
+
+  }
+ 
+  return(df)
+}
+
+
 #'Create bins containing equal sample sizes spread across a variable
 #'@description Create bins containing equal sample sizes. If the density is not
 #'uniform then generic cuts in the data will not produce equal sample sizes among
@@ -284,7 +397,7 @@ plot_continuous <- function(variable, int = NULL, n = 30, response, out = F,
 
   if(is.null(int)){
     log_mod <- glm(response ~ poly(variable,max_poly_degree) ,data = df, family = "binomial") } else {
-       log_mod <- glm(response ~ poly(variable,max_poly_degree) + int + I(int * variable) ,data = df, family = "binomial")
+       log_mod <- glm(response ~ poly(variable,max_poly_degree) + int ,data = df, family = "binomial")
     }
   
   probs <- predict(log_mod , type = 'response')
